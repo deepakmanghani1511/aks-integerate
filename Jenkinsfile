@@ -2,107 +2,81 @@ pipeline {
     agent any
 
     environment {
-        ACR_NAME = 'deepak941'
-        AZURE_CREDENTIALS_ID = 'azure-aks-service-principal'
-        ACR_LOGIN_SERVER = "${ACR_NAME}.azurecr.io"
-        IMAGE_NAME = 'dotnet-webapi'
-        IMAGE_TAG = 'latest'
-        RESOURCE_GROUP = 'rg-integrated-aks-deep'
-        AKS_CLUSTER = 'aks-integrated-deep'
-        TF_WORKING_DIR = 'terraform'
+        AZURE_CREDENTIALS_ID = 'azure-service-principal' // Must be configured in Jenkins credentials
+        ACR_NAME = "deepak941"
+        ACR_LOGIN_SERVER = "deepak941.azurecr.io"
+        IMAGE_NAME = "mywebapideepak"
+        TAG = "v1"
+        RESOURCE_GROUP = "rg-integrated-aks-deep"
+        AKS_CLUSTER_NAME = "aks-integrated-deep"
     }
 
     stages {
         stage('Checkout') {
-            steps {
-               git branch: 'main', url: 'https://github.com/deepakmanghani1511/aks-integerate.git'
-            }
-        }
+    steps {
+        git branch: 'main', url: 'https://github.com/deepakmanghani1511/aks-integerate.git'
+    }
+}
 
-        stage('Build .NET App') {
-            steps {
-                bat 'dotnet publish WebApplication4/WebApplication4.csproj -c Release -o out'
-            }
-        }
 
-        stage('Build Docker Image') {
+        stage('Azure Login') {
             steps {
-                bat "docker build -t %ACR_LOGIN_SERVER%/%IMAGE_NAME%:%IMAGE_TAG% -f WebApplication4/Dockerfile ."
-            }
-        }
-
-       stage('Terraform Init') {
-            steps {
-                withCredentials([azureServicePrincipal(credentialsId: AZURE_CREDENTIALS_ID)]) {
-                    bat """
-                    echo "Navigating to Terraform Directory: %TF_WORKING_DIR%"
-                    cd %TF_WORKING_DIR%
-                    echo "Initializing Terraform..."
-                    terraform init
-                    """
-
+                withCredentials([azureServicePrincipal(
+                    credentialsId: "${AZURE_CREDENTIALS_ID}",
+                    subscriptionIdVariable: 'AZ_SUBSCRIPTION_ID',
+                    clientIdVariable: 'AZ_CLIENT_ID',
+                    clientSecretVariable: 'AZ_CLIENT_SECRET',
+                    tenantIdVariable: 'AZ_TENANT_ID'
+                )]) {
+                    bat '''
+                        az login --service-principal -u %AZ_CLIENT_ID% -p %AZ_CLIENT_SECRET% --tenant %AZ_TENANT_ID%
+                        az account set --subscription %AZ_SUBSCRIPTION_ID%
+                    '''
                 }
             }
         }
 
-        stage('Terraform Plan') {
-    steps {
-        withCredentials([azureServicePrincipal(credentialsId: AZURE_CREDENTIALS_ID)]) {
-            bat """
-            echo "Navigating to Terraform Directory: %TF_WORKING_DIR%"
-            cd %TF_WORKING_DIR%
-            terraform plan -out=tfplan
-            """
-
-        }
-    }
-}
-
-
-        stage('Terraform Apply') {
-    steps {
-        withCredentials([azureServicePrincipal(credentialsId: AZURE_CREDENTIALS_ID)]) {
-            bat """
-            echo "Navigating to Terraform Directory: %TF_WORKING_DIR%"
-            cd %TF_WORKING_DIR%
-            echo "Applying Terraform Plan..."
-            terraform apply -auto-approve tfplan
-            """
-
-        }
-    }
-}
-        stage('Login to ACR') {
+        stage('Terraform Init & Apply') {
             steps {
-                bat "az acr login --name %ACR_NAME%"
+                dir('terraform') {
+                    bat 'terraform init'
+                    bat 'terraform apply -auto-approve'
+                }
             }
         }
 
-        stage('Push Docker Image to ACR') {
+        stage('Docker Build & Push') {
             steps {
-                bat "docker push %ACR_LOGIN_SERVER%/%IMAGE_NAME%:%IMAGE_TAG%"
+                bat """
+                    az acr login --name %ACR_NAME%
+                    docker build -t %ACR_LOGIN_SERVER%/%IMAGE_NAME%:%TAG% .
+                    docker push %ACR_LOGIN_SERVER%/%IMAGE_NAME%:%TAG%
+                """
             }
         }
 
-        stage('Get AKS Credentials') {
+        stage('AKS Authentication') {
             steps {
-                bat "az aks get-credentials --resource-group %RESOURCE_GROUP% --name %AKS_CLUSTER% --overwrite-existing"
+                bat """
+                    az aks get-credentials --resource-group %RESOURCE_GROUP% --name %AKS_CLUSTER_NAME% --overwrite-existing
+                """
             }
         }
 
         stage('Deploy to AKS') {
             steps {
-                bat "kubectl apply -f deployment.yml"
+                bat 'kubectl apply -f deployment.yml'
+                
             }
         }
     }
 
     post {
-        success {
-            echo 'All stages completed successfully!'
-        }
         failure {
-            echo 'Build failed.'
+            echo "❌ Build failed."
+        }
+        success {
+            echo "✅ Application deployed successfully to AKS!"
         }
     }
 }
