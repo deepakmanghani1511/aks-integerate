@@ -21,7 +21,7 @@ pipeline {
 
         stage('Build .NET App') {
             steps {
-                bat 'dotnet publish AksProject/AksProject.csproj -c Release -o out'
+                bat 'dotnet publish WebApplication4/WebApplication4.csproj -c Release -o out'
             }
         }
 
