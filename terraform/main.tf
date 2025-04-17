@@ -1,69 +1,34 @@
 provider "azurerm" {
   features {}
-  resource_provider_registrations = "none"
-  subscription_id                 = "80725b9c-38b3-402c-872fec66539e39d9"
-  tenant_id                       = "4466807f-b09e-41d0-96ab-91eecc4129ed" 
+  subscription_id = "80725b9c-38b3-402c-872fec66539e39d9"
 }
 
 resource "azurerm_resource_group" "main" {
-  name     = var.resource_group_name
-  location = var.location
+  name     = "rg-integrated-aks-deep"
+  location = "East US 2"
 }
 
 resource "azurerm_container_registry" "acr" {
-  name                = var.acr_name
+  name                = "deepak941"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   sku                 = "Basic"
   admin_enabled       = true
-
-  tags = {
-    environment = "dev"
-  }
 }
 
 resource "azurerm_kubernetes_cluster" "aks" {
-  name                = var.aks_name
+  name                = "aks-integrated-deep"
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
-  dns_prefix          = "${var.aks_name}-dns"
+  dns_prefix          = "dotnetaks"
 
   default_node_pool {
     name       = "default"
-    node_count = var.node_count
-    vm_size    = var.node_size
+    node_count = 1
+    vm_size    = "Standard_B2s"
   }
 
   identity {
     type = "SystemAssigned"
-  }
-
-  network_profile {
-    network_plugin    = "azure"
-    load_balancer_sku = "standard"
-  }
-
-  tags = {
-    environment = "dev"
-  }
-
-  depends_on = [azurerm_container_registry.acr]
-}
-
-# Wait until AKS identity is fully available using a data source
-data "azurerm_kubernetes_cluster" "aks" {
-  name                = azurerm_kubernetes_cluster.aks.name
-  resource_group_name = azurerm_resource_group.main.name
-  depends_on          = [azurerm_kubernetes_cluster.aks]
-}
-
-resource "azurerm_role_assignment" "acr_pull" {
-  scope                = azurerm_container_registry.acr.id
-  role_definition_name = "AcrPull"
-  principal_id         = data.azurerm_kubernetes_cluster.aks.kubelet_identity[0].object_id
-
-  # Avoids recreation if principal_id already has role
-  lifecycle {
-    ignore_changes = [principal_id]
   }
 }
